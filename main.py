@@ -246,6 +246,8 @@ if __name__ == '__main__':
         statistics = []
         total_loss = 0
 
+        is_validate = False
+
         if is_validate:
             model.eval()
             title = 'Validating Epoch {}'.format(epoch)
