@@ -1,6 +1,6 @@
 import torch
 import torch.utils.data as data
-
+import torchvision.transforms as transforms
 import os, math, random
 from os.path import *
 import numpy as np
@@ -11,7 +11,7 @@ from scipy.misc import imread, imresize
 
 
 class VID(data.Dataset):
-    def __init__(self, args, is_cropped=False, root='data/vid', dstype='train', replicates = 1):
+    def __init__(self, args, is_cropped=False, root='data/vid', dstype='train', replicates=1):
         self.args = args
         self.is_cropped = is_cropped
         self.crop_size = args.crop_size
@@ -23,12 +23,6 @@ class VID(data.Dataset):
         self.ano_pair_list = self._get_ano_list(dataset_split=dstype)
 
         self.size = len(self.img_pair_list)
-
-        # self.frame_size = frame_utils.read_gen(self.image_list[0][0]).shape
-        #
-        # if (self.render_size[0] < 0) or (self.render_size[1] < 0) or (self.frame_size[0]%64) or (self.frame_size[1]%64):
-        #     self.render_size[0] = ( (self.frame_size[0])//64 ) * 64
-        #     self.render_size[1] = ( (self.frame_size[1])//64 ) * 64
 
         args.inference_size = self.render_size
 
@@ -49,14 +43,9 @@ class VID(data.Dataset):
                 _video_in_subset = os.listdir(_subset_path)
                 for _video in _video_in_subset:
                     _video_path = os.path.join(_subset_path, _video)
-
-                    # data/VID/Data/VID/train/train_0/train_0_vid_0/0.png
-                    # _img_in_video = os.listdir(_video_path)
-                    # for _img in _img_in_video:
-                    #     _img_path = os.path.join(_video_path, _img)
                     _img_in_video = sorted(glob(_video_path + '/*.JPEG'))
 
-                    _img_pair_in_video = np.vstack((_img_in_video[:-1], _img_in_video[1:])).tolist()
+                    _img_pair_in_video = np.vstack((_img_in_video[:-1], _img_in_video[1:])).transpose().tolist()
 
                     _img_pair_list.extend(_img_pair_in_video)
 
@@ -82,13 +71,9 @@ class VID(data.Dataset):
                 for _video in _video_in_subset:
                     _video_path = os.path.join(_subset_path, _video)
 
-                    # data/VID/Data/VID/train/train_0/train_0_vid_0/0.png
-                    # _img_in_video = os.listdir(_video_path)
-                    # for _img in _img_in_video:
-                    #     _img_path = os.path.join(_video_path, _img)
                     _ano_in_video = sorted(glob(_video_path + '/*.xml'))
 
-                    _ano_pair_in_video = np.vstack((_ano_in_video[:-1], _ano_in_video[1:])).tolist()
+                    _ano_pair_in_video = np.vstack((_ano_in_video[:-1], _ano_in_video[1:])).transpose().tolist()
 
                     _ano_pair_list.extend(_ano_pair_in_video)
 
@@ -102,29 +87,29 @@ class VID(data.Dataset):
 
         index = index % self.size
 
-        img1 = frame_utils.read_gen(self.image_list[index][0])
-        img2 = frame_utils.read_gen(self.image_list[index][1])
+        img1 = frame_utils.read_gen(self.img_pair_list[index][0])
+        img2 = frame_utils.read_gen(self.img_pair_list[index][1])
 
-        ano1 = frame_utils.read_gen(self.flow_list[index][0])
-        ano2 = frame_utils.read_gen(self.flow_list[index][1])
+        box1 = frame_utils.read_gen(self.ano_pair_list[index][0])
+        box2 = frame_utils.read_gen(self.ano_pair_list[index][1])
 
         images = [img1, img2]
-        image_size = img1.shape[:2]
-
-        if self.is_cropped:
-            cropper = StaticRandomCrop(image_size, self.crop_size)
-        else:
-            cropper = StaticCenterCrop(image_size, self.render_size)
-        images = list(map(cropper, images))
-        flow = cropper(flow)
+        images = [imresize(img, (360, 640)) for img in images]
+        # image_size = img1.shape[:2]
 
         images = np.array(images).transpose(3,0,1,2)
-        flow = flow.transpose(2,0,1)
+
+        # anos.shape = [K, 4]
+        ano = np.vstack((box1, box2))
 
         images = torch.from_numpy(images.astype(np.float32))
-        flow = torch.from_numpy(flow.astype(np.float32))
 
-        return [images], [flow]
+        boxes = torch.from_numpy(ano.astype(np.float32))
+
+        return [images], [boxes]
+
+    def __len__(self):
+        return self.size * self.replicates
 
 
 class StaticRandomCrop(object):
@@ -142,6 +127,7 @@ class StaticCenterCrop(object):
     def __init__(self, image_size, crop_size):
         self.th, self.tw = crop_size
         self.h, self.w = image_size
+
     def __call__(self, img):
         return img[(self.h-self.th)//2:(self.h+self.th)//2, (self.w-self.tw)//2:(self.w+self.tw)//2,:]
 
