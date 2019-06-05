@@ -2,6 +2,7 @@ import numpy as np
 from os.path import *
 from scipy.misc import imread
 from . import flow_utils 
+import xml.etree.ElementTree as ET
 
 
 def read_gen(file_name):
@@ -18,5 +19,27 @@ def read_gen(file_name):
         return flow_utils.readFlow(file_name).astype(np.float32)
     # TODO
     elif ext == '.xml':
-        raise NotImplementedError
+        tree = ET.parse(file_name)
+
+        size = tree.find('size')
+        H = float(size.find('height').text)
+        W = float(size.find('width').text)
+
+        objs = tree.findall('object')
+        boxes = np.zeros((len(objs), 4), dtype=np.uint16)
+        for ix, obj in enumerate(objs):
+            bbox = obj.find('bndbox')
+            x1 = np.maximum(float(bbox.find('xmin').text), 0)
+            y1 = np.maximum(float(bbox.find('ymin').text), 0)
+            x2 = np.minimum(float(bbox.find('xmax').text), H - 1)
+            y2 = np.minimum(float(bbox.find('ymax').text), W - 1)
+
+            x = x2
+            y = y2
+            h = y1 - y2
+            w = x1 - x2
+
+            boxes[ix, :] = [x, y, h, w]
+
+        return boxes
     return []
