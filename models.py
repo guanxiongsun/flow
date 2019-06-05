@@ -13,11 +13,55 @@ from networks import FlowNetS
 from networks import FlowNetSD
 from networks import FlowNetFusion
 
+from networks import CorrFeature
+from networks import STNModule
+
 from networks.submodules import *
 'Parameter count = 162,518,834'
 
-class FlowNet2(nn.Module):
 
+class CorrSTN(nn.Module):
+    def __init__(self, args, batchNorm=False, div_flow=20.):
+        super(CorrSTN, self).__init__()
+        self.batchNorm = batchNorm
+        self.div_flow = div_flow
+        self.rgb_max = args.rgb_max
+        self.args = args
+
+        # First Block (CorrFeature)
+        self.corr_feature = CorrFeature.CorrFeature(args, batchNorm=self.batchNorm)
+
+        self.stn = STNModule.SpatialTransformer(in_channels=441, spatial_dims=(45, 80), kernel_size=3)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m.bias is not None:
+                    init.uniform_(m.bias)
+                init.xavier_uniform_(m.weight)
+
+            if isinstance(m, nn.ConvTranspose2d):
+                if m.bias is not None:
+                    init.uniform_(m.bias)
+                init.xavier_uniform_(m.weight)
+                # init_deconv_bilinear(m.weight)
+
+    def forward(self, inputs):
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1,))
+
+        x = (inputs - rgb_mean) / self.rgb_max
+        x1 = x[:, :, 0, :, :]
+        x2 = x[:, :, 1, :, :]
+        x = torch.cat((x1, x2), dim=1)
+
+        # CorrFeature
+        corr_feature = self.corr_feature(x)
+
+        transformed_img = self.stn(corr_feature, x1)
+
+        return transformed_img, x2
+
+
+class FlowNet2(nn.Module):
     def __init__(self, args, batchNorm=False, div_flow = 20.):
         super(FlowNet2,self).__init__()
         self.batchNorm = batchNorm
